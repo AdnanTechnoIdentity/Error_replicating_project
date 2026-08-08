@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  demo-backend:
+    build: ./backend
+    ports:
+      - "9000:9000"
+    environment:
+      - NEXUS_WEBHOOK_URL=${NEXUS_WEBHOOK_URL:-http://host.docker.internal:8000/api/incidents/ingest}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-nexus-demo-secret-change-me}
+      - CHAOS_SECRET=${CHAOS_SECRET:-chaos-panel-secret}
+      - APP_HOST=0.0.0.0
+      - APP_PORT=9000
+    restart: unless-stopped
+
+  demo-frontend:
+    build: ./frontend
+    ports:
+      - "5174:80"
+    depends_on:
+      - demo-backend
+    restart: unless-stopped

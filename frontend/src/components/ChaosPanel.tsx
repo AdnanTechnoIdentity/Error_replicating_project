@@ -13,6 +13,9 @@ const SCENARIOS = [
   { value: 'payment_failure', label: 'Payment Failure' },
   { value: 'deadlock', label: 'Deadlock' },
   { value: 'rate_limit', label: 'Rate Limit' },
+  { value: 'cpu_spike', label: 'CPU Spike' },
+  { value: 'cascade_failure', label: '⚡ Cascade Failure (All Services)' },
+  { value: 'disk_full', label: 'Disk Full (ENOSPC)' },
 ]
 
 const SELECT_STYLE: React.CSSProperties = {
@@ -39,8 +42,22 @@ export default function ChaosPanel({ onAction }: Props) {
   async function handleTrigger() {
     setLoading(true)
     setMessage('')
+    console.warn('[NexusShop:ChaosPanel.handleTrigger] chaos_trigger_initiated', {
+      ts: new Date().toISOString(), source: 'nexusshop-ui',
+      component: 'ChaosPanel', method: 'handleTrigger', file: 'src/components/ChaosPanel.tsx:51',
+      service, scenario,
+      user_intent: `Manually injecting ${scenario.replace(/_/g, ' ')} failure into ${service} service`,
+      stack: 'handleTrigger (ChaosPanel.tsx:51)\nReact.MouseEvent.onClick (native)',
+    })
     try {
       await triggerChaos(service, scenario)
+      console.error('[NexusShop:ChaosPanel.handleTrigger] chaos_trigger_success', {
+        ts: new Date().toISOString(), source: 'nexusshop-ui',
+        component: 'ChaosPanel', method: 'handleTrigger', file: 'src/components/ChaosPanel.tsx:61',
+        service, scenario,
+        result: `${scenario} injected into ${service} — Nexus incident workflow starting`,
+        next: 'Check Nexus dashboard for AI investigation progress',
+      })
       setMessage(`✓ Triggered ${scenario} on ${service}`)
       onAction()
     } catch (e: unknown) {
@@ -53,6 +70,12 @@ export default function ChaosPanel({ onAction }: Props) {
   async function handleRecoverAll() {
     setLoading(true)
     setMessage('')
+    console.log('[NexusShop:ChaosPanel.handleRecoverAll] recover_all_initiated', {
+      ts: new Date().toISOString(), source: 'nexusshop-ui',
+      component: 'ChaosPanel', method: 'handleRecoverAll', file: 'src/components/ChaosPanel.tsx:71',
+      services: [...SERVICES],
+      action: 'Cancelling all active chaos scenarios and restoring healthy state',
+    })
     try {
       for (const svc of SERVICES) await recoverService(svc)
       setMessage('✓ All services recovered')

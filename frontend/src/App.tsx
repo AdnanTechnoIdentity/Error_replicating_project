@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import ServiceCard from './components/ServiceCard'
 import ErrorFeed from './components/ErrorFeed'
 import ChaosPanel from './components/ChaosPanel'
@@ -14,10 +14,52 @@ const OVERALL_STATUS = (services: AppState['services']) => {
 export default function App() {
   const [state, setState] = useState<AppState | null>(null)
   const [error, setError] = useState('')
+  const prevStatusesRef = useRef<Record<string, string>>({})
+  const seenErrorIds = useRef<Set<string>>(new Set())
 
   const refresh = useCallback(async () => {
     try {
       const s = await fetchState()
+
+      // Detect and log service status transitions
+      for (const [name, svc] of Object.entries(s.services)) {
+        const prev = prevStatusesRef.current[name]
+        if (prev && prev !== svc.status) {
+          const fn = svc.status === 'HEALTHY' ? console.log : svc.status === 'DEGRADED' ? console.warn : console.error
+          fn(`[NexusShop:ServiceStatusTracker.detectTransitions] service_status_transition`, {
+            ts: new Date().toISOString(), source: 'nexusshop-ui',
+            component: 'ServiceStatusTracker', method: 'detectTransitions', file: 'src/App.tsx:30',
+            service: name, from: prev, to: svc.status,
+            active_scenario: svc.active_scenario,
+            metrics: {
+              error_rate_pct: Math.round(svc.error_rate * 100),
+              response_time_ms: svc.response_time_ms,
+              db_connections: `${svc.db_connections}/${svc.db_max}`,
+            },
+            impact: `${name} is now ${svc.status} — user-facing requests are ${svc.status === 'HEALTHY' ? 'recovering' : 'failing'}`,
+            stack: 'detectTransitions (App.tsx:30)\nApp.refresh (App.tsx:20)\nPromise.resolve (native)',
+          })
+        }
+        prevStatusesRef.current[name] = svc.status
+      }
+
+      // Log each new error event exactly once
+      for (const ev of s.recent_errors) {
+        if (!seenErrorIds.current.has(ev.id)) {
+          seenErrorIds.current.add(ev.id)
+          const fn = ev.severity === 'HIGH' ? console.error : ev.severity === 'MEDIUM' ? console.warn : console.log
+          fn(`[NexusShop:ErrorEventTracker.trackNewErrors] new_error_event — ${ev.severity} in ${ev.service}`, {
+            ts: new Date().toISOString(), source: 'nexusshop-ui',
+            component: 'ErrorEventTracker', method: 'trackNewErrors', file: 'src/App.tsx:50',
+            error_id: ev.id, service: ev.service, scenario: ev.scenario,
+            severity: ev.severity, message: ev.message, occurred_at: ev.timestamp,
+            nexus_webhook_dispatched: true,
+            impact: `${ev.service} is experiencing ${ev.scenario.replace(/_/g, ' ')} — Nexus AI investigation started`,
+            stack: 'trackNewErrors (App.tsx:50)\nApp.refresh (App.tsx:20)\nPromise.resolve (native)',
+          })
+        }
+      }
+
       setState(s)
       setError('')
     } catch {
@@ -27,9 +69,7 @@ export default function App() {
 
   useEffect(() => {
     refresh()
-    const id = setInterval(refresh, 2000)
-    return () => clearInterval(id)
-  }, [refresh])
+  }, [])
 
   const overall = state ? OVERALL_STATUS(state.services) : { label: 'CONNECTING…', color: '#78716c' }
 

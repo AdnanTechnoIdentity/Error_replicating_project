@@ -1,3 +1,4 @@
+import asyncio
 import os
 import logging
 from typing import Literal, Union
@@ -6,7 +7,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from state import app_state
-from chaos.scenarios import SCENARIOS, cleanup_and_recover, AUTO_RECOVERY_SECONDS
+from chaos.scenarios import SCENARIOS, cleanup_and_recover, AUTO_RECOVERY_SECONDS, _simulate_failed_traffic
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chaos", tags=["chaos"])
@@ -49,6 +50,17 @@ async def trigger_chaos(body: TriggerRequest, x_chaos_key: str = Header(default=
     cleanup_and_recover(body.service)
 
     await handler(body.service)
+
+    # Spawn traffic simulator so Nexus log-agent sees realistic failing-user requests
+    if body.scenario == "cascade_failure":
+        for _svc in VALID_SERVICES:
+            app_state.background_tasks[_svc].append(
+                asyncio.create_task(_simulate_failed_traffic(_svc, body.scenario))
+            )
+    else:
+        app_state.background_tasks[body.service].append(
+            asyncio.create_task(_simulate_failed_traffic(body.service, body.scenario))
+        )
 
     return {
         "triggered": True,
